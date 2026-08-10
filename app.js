@@ -1,9 +1,10 @@
 const $ = id => document.getElementById(id);
-const storeKey = "fitcycle-v2";
-let legacy = JSON.parse(localStorage.getItem("fitcycle-v1") || "{}");
+const storeKey = "fitcycle-v3";
+const legacy = JSON.parse(localStorage.getItem("fitcycle-v2") || localStorage.getItem("fitcycle-v1") || "{}");
 let state = JSON.parse(localStorage.getItem(storeKey) || "null") || legacy || {};
 let plan = state.plan || [];
 state.oneRMs = state.oneRMs || {};
+state.logs = state.logs || [];
 
 const exerciseDB = {
   push: ["Barbell Bench Press","Incline Dumbbell Press","Overhead Press","Cable/Lateral Raise","Triceps Pressdown"],
@@ -19,8 +20,8 @@ const percentEligible = /Squat|Deadlift|Bench Press|Overhead Press|Leg Press|Row
 
 function save(){ localStorage.setItem(storeKey, JSON.stringify({...state, plan})); }
 function roundLoad(x){ return Math.max(0, Math.round(x/5)*5); }
+function esc(s){ return String(s).replaceAll("'","\\'"); }
 
-// Epley estimated 1RM: weight × (1 + reps/30). A true single returns the entered weight.
 function estimate1RM(weight,reps){
   if(!weight || !reps) return 0;
   if(reps === 1) return weight;
@@ -49,7 +50,7 @@ function params(goal, week, name){
   const compound = /Squat|Deadlift|Bench|Press|Row|Pulldown|Pull-up/.test(name);
   let sets = compound ? 3 : 2, reps = compound ? "6–10" : "10–15", rir = 3;
   if(goal==="strength"){ sets=compound?4:3; reps=compound?"4–6":"8–12"; }
-  if(goal==="hypertrophy"){ sets=compound?3:3; reps=compound?"6–10":"10–15"; }
+  if(goal==="hypertrophy"){ sets=3; reps=compound?"6–10":"10–15"; }
   if(goal==="fatloss"||goal==="general"){ sets=compound?3:2; reps=compound?"6–10":"10–15"; }
   if(week===2) rir=2;
   if(week===3){ rir=1; if(compound) sets+=1; }
@@ -79,14 +80,12 @@ function readiness(){
   if(score<.55){ text="Low readiness: working weights reduced ~10%."; factor=.90; }
   else if(score<.7){ text="Moderate readiness: working weights reduced ~5%."; factor=.95; }
   $("readinessText").textContent=`Readiness ${Math.round(score*100)}% — ${text}`;
-  state.readiness={sleep,sore,stress,energy,score}; save();
+  state.readiness={sleep,sore,stress,energy,score};
   return factor;
 }
 
-function lastFor(name){
-  const logs=state.logs||[];
-  return [...logs].reverse().find(x=>x.name===name && x.weight>0);
-}
+function lastFor(name){ return [...state.logs].reverse().find(x=>x.name===name && x.weight>0); }
+function logsFor(name, week, dayIndex){ return state.logs.filter(x=>x.name===name && x.week===week && x.dayIndex===dayIndex); }
 
 function workingWeight(name, intensity){
   const rm=state.oneRMs?.[name]?.value;
@@ -94,18 +93,16 @@ function workingWeight(name, intensity){
   return roundLoad(rm * intensity * readiness());
 }
 
-function suggested(name){
-  const last=lastFor(name); 
-  const rm=state.oneRMs?.[name]?.value;
-  if(!last) return rm ? `Saved estimated 1RM: ${roundLoad(rm)} lb.` : "Start conservatively; finish near the programmed RIR.";
-  const factor=readiness();
+function suggestedLoad(name, intensity){
+  const pctTarget=workingWeight(name,intensity);
+  const last=lastFor(name);
+  if(pctTarget) return pctTarget;
+  if(!last) return "";
   let mult=1;
   if(last.rir>=3) mult=1.05;
   else if(last.rir===2) mult=1.025;
   else if(last.rir<=0) mult=.95;
-  const raw=last.weight*mult*factor;
-  const rounded=roundLoad(raw);
-  return `Suggested next load: ~${rounded} lb (last: ${last.weight} × ${last.reps}, RIR ${last.rir}).`;
+  return roundLoad(last.weight*mult*readiness());
 }
 
 function render1RM(){
@@ -113,7 +110,20 @@ function render1RM(){
   if(!ex.options.length) ex.innerHTML=rmExercises.map(n=>`<option>${n}</option>`).join("");
   const entries=Object.entries(state.oneRMs||{}).sort((a,b)=>a[0].localeCompare(b[0]));
   $("rmSaved").innerHTML = entries.length ? `<h3>Saved estimated 1RMs</h3>` + entries.map(([name,x])=>`
-    <div class="rm-row"><span>${name}</span><strong>${roundLoad(x.value)} lb</strong><button class="small ghost" onclick="deleteRM('${name.replaceAll("'","\\'")}')">Remove</button></div>`).join("") : `<p class="muted">No saved 1RM estimates yet.</p>`;
+    <div class="rm-row"><span>${name}</span><strong>${roundLoad(x.value)} lb</strong><button class="small ghost" onclick="deleteRM('${esc(name)}')">Remove</button></div>`).join("") : `<p class="muted">No saved 1RM estimates yet.</p>`;
+}
+
+function setRowHtml(e, week, dayIndex, exIndex, setIndex){
+  const existing=logsFor(e.name,week,dayIndex)[setIndex];
+  const target=suggestedLoad(e.name,e.intensity);
+  const uid=`w${week}d${dayIndex}e${exIndex}s${setIndex}`;
+  return `<div class="set-row ${existing?'completed':''}" id="row-${uid}">
+    <div class="set-num">${existing?'✓':setIndex+1}</div>
+    <label>Weight<input id="wt-${uid}" inputmode="decimal" type="number" min="0" step="2.5" value="${existing?.weight ?? target ?? ''}" placeholder="lb"></label>
+    <label>Reps<input id="rp-${uid}" inputmode="numeric" type="number" min="1" value="${existing?.reps ?? ''}" placeholder="reps"></label>
+    <label>RIR<input id="rr-${uid}" inputmode="numeric" type="number" min="0" max="6" value="${existing?.rir ?? e.rir}"></label>
+    <button class="set-save" onclick="saveInlineSet('${uid}',${week},${dayIndex},${setIndex},'${esc(e.name)}')">${existing?'Update':'Log'}</button>
+  </div>`;
 }
 
 function render(){
@@ -121,34 +131,37 @@ function render(){
   readiness();
   const week=+$("weekSelect").value;
   const w=plan.find(x=>x.week===week);
-  $("plan").innerHTML = w ? w.days.map(d=>`
-    <div class="day"><strong>${d.name}</strong>
-    ${d.exercises.map(e=>{
-      const target=workingWeight(e.name,e.intensity);
-      const pct=e.intensity ? `<span class="pill">${Math.round(e.intensity*1000)/10}% 1RM</span>` : "";
-      const load=target ? `<span class="pill target">~${target} lb target</span>` : (e.intensity ? `<span class="pill missing">Add 1RM for load</span>` : "");
-      return `<div class="exercise"><strong>${e.name}</strong><span class="pill">${e.sets} sets</span><span class="pill">${e.reps} reps</span><span class="pill">RIR ${e.rir}</span>${pct}${load}</div>`;
-    }).join("")}
-    ${d.cardio?`<div class="exercise"><strong>Cardio</strong><span class="pill">${d.cardio}</span></div>`:""}
+  $("plan").innerHTML = w ? w.days.map((d,di)=>`
+    <div class="day">
+      <div class="day-title"><strong>${d.name}</strong></div>
+      ${d.exercises.map((e,ei)=>{
+        const target=workingWeight(e.name,e.intensity);
+        const rm=state.oneRMs?.[e.name]?.value;
+        const pct=e.intensity ? `<span class="pill">${Math.round(e.intensity*1000)/10}% 1RM</span>` : "";
+        const load=target ? `<span class="pill target">Target ~${target} lb</span>` : (e.intensity ? `<button class="inline-link" onclick="jumpToRM('${esc(e.name)}')">+ Add 1RM</button>` : "");
+        const last=lastFor(e.name);
+        const history=last ? `<span class="last-set">Last: ${last.weight} × ${last.reps} @ RIR ${last.rir}</span>` : '';
+        return `<div class="exercise-card">
+          <div class="exercise-head">
+            <div><strong>${e.name}</strong><div class="meta"><span>${e.sets} sets</span><span>${e.reps} reps</span><span>RIR ${e.rir}</span>${pct}${load}</div>${history}</div>
+          </div>
+          <div class="sets-header"><span>Set</span><span>Weight</span><span>Reps</span><span>RIR</span><span></span></div>
+          <div class="set-list">${Array.from({length:e.sets},(_,si)=>setRowHtml(e,week,di,ei,si)).join('')}</div>
+          ${rm ? `<div class="e1rm-note">Saved e1RM: ${roundLoad(rm)} lb</div>` : ''}
+        </div>`;
+      }).join("")}
+      ${d.cardio?`<div class="exercise-card cardio"><strong>Cardio</strong><span class="pill">${d.cardio}</span></div>`:""}
     </div>`).join("") : `<p class="muted">Generate a training block to begin.</p>`;
-
-  const names = w ? [...new Set(w.days.flatMap(d=>d.exercises.map(e=>e.name)))] : [];
-  $("log").innerHTML=names.map((name,i)=>`
-    <div class="logrow">
-      <div class="ename"><strong>${name}</strong><div class="suggestion">${suggested(name)}</div></div>
-      <label>Weight<input inputmode="decimal" id="wt${i}" type="number" min="0"></label>
-      <label>Reps<input inputmode="numeric" id="rp${i}" type="number" min="1"></label>
-      <label>RIR<input inputmode="numeric" id="rr${i}" type="number" min="0" max="6" value="2"></label>
-      <button onclick="logSet(${i}, '${name.replaceAll("'","\\'")}')">Save set</button>
-    </div>`).join("");
+  save();
 }
 
-window.logSet=(i,name)=>{
-  const weight=+$("wt"+i).value,reps=+$("rp"+i).value,rir=+$("rr"+i).value;
+window.saveInlineSet=(uid,week,dayIndex,setIndex,name)=>{
+  const weight=+$("wt-"+uid).value, reps=+$("rp-"+uid).value, rir=+$("rr-"+uid).value;
   if(!weight||!reps) return alert("Enter weight and reps.");
-  state.logs=state.logs||[];
-  state.logs.push({date:new Date().toISOString(),name,weight,reps,rir,readiness:state.readiness?.score||1});
-  // Keep an updated e1RM from sufficiently hard sets (RIR <= 2), adding RIR as estimated extra reps.
+  const record={date:new Date().toISOString(),name,weight,reps,rir,week,dayIndex,setIndex,readiness:state.readiness?.score||1};
+  const existingIndex=state.logs.findIndex(x=>x.name===name && x.week===week && x.dayIndex===dayIndex && x.setIndex===setIndex);
+  if(existingIndex>=0) state.logs[existingIndex]=record; else state.logs.push(record);
+
   if(rir<=2 && reps<=12){
     const effectiveReps=Math.min(15,reps+rir);
     const e1rm=estimate1RM(weight,effectiveReps);
@@ -159,6 +172,11 @@ window.logSet=(i,name)=>{
   save(); render();
 };
 
+window.jumpToRM=(name)=>{
+  $("rmExercise").value=name;
+  document.getElementById("oneRmCard").scrollIntoView({behavior:"smooth",block:"start"});
+  setTimeout(()=>$("rmWeight").focus(),450);
+};
 window.deleteRM=(name)=>{ delete state.oneRMs[name]; save(); render(); };
 
 $("saveRmBtn").addEventListener("click",()=>{
@@ -179,9 +197,9 @@ $("rmReps").addEventListener("input",previewRM);
 ["sleep","soreness","stress","energy"].forEach(id=>$(id).addEventListener("change",render));
 $("weekSelect").addEventListener("change",render);
 $("generateBtn").addEventListener("click",generate);
-$("resetBtn").addEventListener("click",()=>{ if(confirm("Delete FitCycle data on this device?")){localStorage.removeItem(storeKey);localStorage.removeItem("fitcycle-v1");location.reload();}});
+$("resetBtn").addEventListener("click",()=>{ if(confirm("Delete FitCycle data on this device?")){localStorage.removeItem(storeKey);localStorage.removeItem("fitcycle-v2");localStorage.removeItem("fitcycle-v1");location.reload();}});
 if(state.settings){
   $("goal").value=state.settings.goal;$("days").value=state.settings.days;$("cardioDays").value=state.settings.cardio;$("experience").value=state.settings.experience;
 }
-if("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js");
+if("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js?v=3");
 render();

@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="FitCycle" />
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icon.svg" />
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=3" />
   <title>FitCycle</title>
 </head>
 <body>
@@ -22,6 +22,33 @@
 </header>
 
 <main>
+  <section class="card rm-hero" id="oneRmCard">
+    <div class="row top-row">
+      <div>
+        <div class="eyebrow">STRENGTH SETUP</div>
+        <h2>1 Rep Max Calculator</h2>
+      </div>
+      <span class="badge">NEW</span>
+    </div>
+    <p class="muted">Enter a recent hard set and FitCycle will estimate your 1RM, save it for the exercise, and use it to calculate workout loads.</p>
+    <div class="grid">
+      <label>Exercise
+        <select id="rmExercise"></select>
+      </label>
+      <label>Weight (lb)
+        <input id="rmWeight" inputmode="decimal" type="number" min="0" step="2.5" placeholder="185">
+      </label>
+      <label>Reps performed
+        <input id="rmReps" inputmode="numeric" type="number" min="1" max="15" placeholder="5">
+      </label>
+      <label>Estimated 1RM
+        <input id="rmResult" type="text" readonly placeholder="—">
+      </label>
+    </div>
+    <button id="saveRmBtn">Calculate & Save 1RM</button>
+    <div id="rmSaved" class="rm-saved"></div>
+  </section>
+
   <section class="card">
     <h2>Profile & Goal</h2>
     <div class="grid">
@@ -54,28 +81,6 @@
     <button id="generateBtn">Generate 4-Week Block</button>
   </section>
 
-
-  <section class="card">
-    <h2>1RM Calculator</h2>
-    <p class="muted">Estimate your one-rep max from a recent hard set. For the most useful estimate, use a set of about 2–10 reps performed with good form.</p>
-    <div class="grid">
-      <label>Exercise
-        <select id="rmExercise"></select>
-      </label>
-      <label>Weight (lb)
-        <input id="rmWeight" inputmode="decimal" type="number" min="0" step="2.5" placeholder="185">
-      </label>
-      <label>Reps performed
-        <input id="rmReps" inputmode="numeric" type="number" min="1" max="15" placeholder="5">
-      </label>
-      <label>Estimated 1RM
-        <input id="rmResult" type="text" readonly placeholder="—">
-      </label>
-    </div>
-    <button id="saveRmBtn">Calculate & Save 1RM</button>
-    <div id="rmSaved" class="rm-saved"></div>
-  </section>
-
   <section class="card">
     <h2>Today's Readiness</h2>
     <div class="grid">
@@ -95,16 +100,11 @@
         <option value="3">Week 3</option><option value="4">Week 4 — Deload</option>
       </select>
     </div>
+    <p class="muted">Log each set directly inside the workout. Your most recent performance and estimated 1RM feed future load recommendations.</p>
     <div id="plan"></div>
-  </section>
-
-  <section class="card">
-    <h2>Workout Log</h2>
-    <p class="muted">Enter what you actually performed. FitCycle uses load, reps, RIR and readiness to suggest your next working weight.</p>
-    <div id="log"></div>
   </section>
 </main>
 
-<script src="app.js"></script>
+<script src="app.js?v=3"></script>
 </body>
 </html>
