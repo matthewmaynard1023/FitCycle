@@ -1,6 +1,6 @@
 const $ = id => document.getElementById(id);
-const storeKey = "fitcycle-v4";
-const legacy = JSON.parse(localStorage.getItem("fitcycle-v3") || localStorage.getItem("fitcycle-v2") || localStorage.getItem("fitcycle-v1") || "{}");
+const storeKey = "fitcycle-v5";
+const legacy = JSON.parse(localStorage.getItem("fitcycle-v4") || localStorage.getItem("fitcycle-v3") || localStorage.getItem("fitcycle-v2") || localStorage.getItem("fitcycle-v1") || "{}");
 let state = JSON.parse(localStorage.getItem(storeKey) || "null") || legacy || {};
 let plan = state.plan || [];
 state.oneRMs = state.oneRMs || {};
@@ -59,6 +59,36 @@ function prescriptionFor(goal, week, name){
     intensity,
     reps: repsFromIntensity(intensity,goal,week)
   };
+}
+
+function effectivePrescription(e, week){
+  const goal=state.settings?.goal || $("goal")?.value || "hypertrophy";
+  const rx=prescriptionFor(goal,week,e.name);
+  return {
+    intensity: e.intensity ?? rx.intensity,
+    reps: (e.intensity != null && e.reps) ? e.reps : (rx.reps || e.reps)
+  };
+}
+
+function upgradeSavedPlan(){
+  if(!Array.isArray(plan) || !plan.length) return;
+  const goal=state.settings?.goal || "hypertrophy";
+  let changed=false;
+  plan=plan.map(w=>({
+    ...w,
+    days:(w.days||[]).map(d=>({
+      ...d,
+      exercises:(d.exercises||[]).map(e=>{
+        const rx=prescriptionFor(goal,w.week,e.name);
+        if(e.intensity == null && rx.intensity != null){
+          changed=true;
+          return {...e,intensity:rx.intensity,reps:rx.reps || e.reps};
+        }
+        return e;
+      })
+    }))
+  }));
+  if(changed) save();
 }
 
 function splitFor(days){
@@ -140,12 +170,13 @@ function render1RM(){
 
 function setRowHtml(e, week, dayIndex, exIndex, setIndex){
   const existing=logsFor(e.name,week,dayIndex)[setIndex];
-  const target=suggestedLoad(e.name,e.intensity);
+  const rx=effectivePrescription(e,week);
+  const target=suggestedLoad(e.name,rx.intensity);
   const uid=`w${week}d${dayIndex}e${exIndex}s${setIndex}`;
   return `<div class="set-row ${existing?'completed':''}" id="row-${uid}">
     <div class="set-num">${existing?'✓':setIndex+1}</div>
     <label>Weight<input id="wt-${uid}" inputmode="decimal" type="number" min="0" step="2.5" value="${existing?.weight ?? target ?? ''}" placeholder="lb"></label>
-    <label>Reps<input id="rp-${uid}" inputmode="numeric" type="number" min="1" value="${existing?.reps ?? ''}" placeholder="reps"></label>
+    <label>Reps<input id="rp-${uid}" inputmode="numeric" type="number" min="1" value="${existing?.reps ?? rx.reps ?? ''}" placeholder="reps"></label>
     <label>RIR<input id="rr-${uid}" inputmode="numeric" type="number" min="0" max="6" value="${existing?.rir ?? e.rir}"></label>
     <button class="set-save" onclick="saveInlineSet('${uid}',${week},${dayIndex},${setIndex},'${esc(e.name)}')">${existing?'Update':'Log'}</button>
   </div>`;
@@ -160,15 +191,16 @@ function render(){
     <div class="day">
       <div class="day-title"><strong>${d.name}</strong></div>
       ${d.exercises.map((e,ei)=>{
-        const target=workingWeight(e.name,e.intensity);
+        const rx=effectivePrescription(e,week);
+        const target=workingWeight(e.name,rx.intensity);
         const rm=state.oneRMs?.[e.name]?.value;
-        const pct=e.intensity ? `<span class="pill">${Math.round(e.intensity*1000)/10}% 1RM</span>` : "";
-        const load=target ? `<span class="pill target">Rx ${target} lb × ${e.reps}</span>` : (e.intensity ? `<button class="inline-link" onclick="jumpToRM('${esc(e.name)}')">+ Add 1RM to calculate load</button>` : "");
+        const pct=rx.intensity ? `<span class="pill">${Math.round(rx.intensity*1000)/10}% 1RM</span>` : "";
+        const load=target ? `<span class="pill target">Rx ${target} lb × ${rx.reps}</span>` : (rx.intensity ? `<button class="inline-link" onclick="jumpToRM('${esc(e.name)}')">+ Add 1RM to calculate load</button>` : "");
         const last=lastFor(e.name);
         const history=last ? `<span class="last-set">Last: ${last.weight} × ${last.reps} @ RIR ${last.rir}</span>` : '';
         return `<div class="exercise-card">
           <div class="exercise-head">
-            <div><strong>${e.name}</strong><div class="meta"><span>${e.sets} sets</span><span>${e.reps} reps</span><span>RIR ${e.rir}</span>${pct}${load}</div>${history}</div>
+            <div><strong>${e.name}</strong><div class="meta"><span>${e.sets} sets</span><span>${rx.reps || e.reps} reps</span><span>RIR ${e.rir}</span>${pct}${load}</div>${history}</div>
           </div>
           <div class="sets-header"><span>Set</span><span>Weight</span><span>Reps</span><span>RIR</span><span></span></div>
           <div class="set-list">${Array.from({length:e.sets},(_,si)=>setRowHtml(e,week,di,ei,si)).join('')}</div>
@@ -210,6 +242,7 @@ $("saveRmBtn").addEventListener("click",()=>{
   const e1rm=estimate1RM(weight,reps);
   state.oneRMs[name]={value:e1rm,weight,reps,date:new Date().toISOString(),source:"1RM calculator"};
   $("rmResult").value=`${roundLoad(e1rm)} lb`;
+  upgradeSavedPlan();
   save(); render();
 });
 
@@ -222,9 +255,10 @@ $("rmReps").addEventListener("input",previewRM);
 ["sleep","soreness","stress","energy"].forEach(id=>$(id).addEventListener("change",render));
 $("weekSelect").addEventListener("change",render);
 $("generateBtn").addEventListener("click",generate);
-$("resetBtn").addEventListener("click",()=>{ if(confirm("Delete FitCycle data on this device?")){localStorage.removeItem(storeKey);localStorage.removeItem("fitcycle-v3");localStorage.removeItem("fitcycle-v2");localStorage.removeItem("fitcycle-v1");location.reload();}});
+$("resetBtn").addEventListener("click",()=>{ if(confirm("Delete FitCycle data on this device?")){localStorage.removeItem(storeKey);localStorage.removeItem("fitcycle-v4");localStorage.removeItem("fitcycle-v3");localStorage.removeItem("fitcycle-v2");localStorage.removeItem("fitcycle-v1");location.reload();}});
 if(state.settings){
   $("goal").value=state.settings.goal;$("days").value=state.settings.days;$("cardioDays").value=state.settings.cardio;$("experience").value=state.settings.experience;
 }
-if("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js?v=4");
+upgradeSavedPlan();
+if("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js?v=5");
 render();
