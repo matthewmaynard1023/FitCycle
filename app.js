@@ -1,7 +1,9 @@
 const $ = id => document.getElementById(id);
-const storeKey = "fitcycle-v1";
-let state = JSON.parse(localStorage.getItem(storeKey) || "{}");
+const storeKey = "fitcycle-v2";
+let legacy = JSON.parse(localStorage.getItem("fitcycle-v1") || "{}");
+let state = JSON.parse(localStorage.getItem(storeKey) || "null") || legacy || {};
 let plan = state.plan || [];
+state.oneRMs = state.oneRMs || {};
 
 const exerciseDB = {
   push: ["Barbell Bench Press","Incline Dumbbell Press","Overhead Press","Cable/Lateral Raise","Triceps Pressdown"],
@@ -12,7 +14,29 @@ const exerciseDB = {
   full: ["Back Squat","Barbell Bench Press","Chest-Supported Row","Romanian Deadlift","Overhead Press","Lat Pulldown / Pull-up"]
 };
 
+const rmExercises = [...new Set(Object.values(exerciseDB).flat())];
+const percentEligible = /Squat|Deadlift|Bench Press|Overhead Press|Leg Press|Row|Pulldown|Pull-up/;
+
 function save(){ localStorage.setItem(storeKey, JSON.stringify({...state, plan})); }
+function roundLoad(x){ return Math.max(0, Math.round(x/5)*5); }
+
+// Epley estimated 1RM: weight × (1 + reps/30). A true single returns the entered weight.
+function estimate1RM(weight,reps){
+  if(!weight || !reps) return 0;
+  if(reps === 1) return weight;
+  return weight * (1 + reps/30);
+}
+
+function intensityFor(goal, week, name){
+  if(!percentEligible.test(name)) return null;
+  const table = {
+    strength:    {1:.75, 2:.80, 3:.85, 4:.65},
+    hypertrophy: {1:.65, 2:.70, 3:.75, 4:.60},
+    fatloss:     {1:.65, 2:.675,3:.70, 4:.60},
+    general:     {1:.65, 2:.70, 3:.725,4:.60}
+  };
+  return table[goal]?.[week] || .70;
+}
 
 function splitFor(days){
   if(days===3) return ["full","full","full"];
@@ -30,7 +54,7 @@ function params(goal, week, name){
   if(week===2) rir=2;
   if(week===3){ rir=1; if(compound) sets+=1; }
   if(week===4){ rir=4; sets=Math.max(2,Math.ceil(sets*.6)); }
-  return {sets,reps,rir};
+  return {sets,reps,rir,intensity:intensityFor(goal,week,name)};
 }
 
 function generate(){
@@ -52,8 +76,8 @@ function readiness(){
   const sleep=+$("sleep").value, sore=+$("soreness").value, stress=+$("stress").value, energy=+$("energy").value;
   const score=(sleep + (6-sore) + (6-stress) + energy)/20;
   let text="Normal training load.", factor=1;
-  if(score<.55){ text="Low readiness: consider ~10% less load and/or 1 fewer set."; factor=.90; }
-  else if(score<.7){ text="Moderate readiness: consider ~5% less load."; factor=.95; }
+  if(score<.55){ text="Low readiness: working weights reduced ~10%."; factor=.90; }
+  else if(score<.7){ text="Moderate readiness: working weights reduced ~5%."; factor=.95; }
   $("readinessText").textContent=`Readiness ${Math.round(score*100)}% — ${text}`;
   state.readiness={sleep,sore,stress,energy,score}; save();
   return factor;
@@ -64,25 +88,47 @@ function lastFor(name){
   return [...logs].reverse().find(x=>x.name===name && x.weight>0);
 }
 
+function workingWeight(name, intensity){
+  const rm=state.oneRMs?.[name]?.value;
+  if(!rm || !intensity) return null;
+  return roundLoad(rm * intensity * readiness());
+}
+
 function suggested(name){
-  const last=lastFor(name); if(!last) return "Start conservatively; finish near the programmed RIR.";
+  const last=lastFor(name); 
+  const rm=state.oneRMs?.[name]?.value;
+  if(!last) return rm ? `Saved estimated 1RM: ${roundLoad(rm)} lb.` : "Start conservatively; finish near the programmed RIR.";
   const factor=readiness();
   let mult=1;
   if(last.rir>=3) mult=1.05;
   else if(last.rir===2) mult=1.025;
   else if(last.rir<=0) mult=.95;
   const raw=last.weight*mult*factor;
-  const rounded=Math.max(0,Math.round(raw/5)*5);
+  const rounded=roundLoad(raw);
   return `Suggested next load: ~${rounded} lb (last: ${last.weight} × ${last.reps}, RIR ${last.rir}).`;
 }
 
+function render1RM(){
+  const ex=$("rmExercise");
+  if(!ex.options.length) ex.innerHTML=rmExercises.map(n=>`<option>${n}</option>`).join("");
+  const entries=Object.entries(state.oneRMs||{}).sort((a,b)=>a[0].localeCompare(b[0]));
+  $("rmSaved").innerHTML = entries.length ? `<h3>Saved estimated 1RMs</h3>` + entries.map(([name,x])=>`
+    <div class="rm-row"><span>${name}</span><strong>${roundLoad(x.value)} lb</strong><button class="small ghost" onclick="deleteRM('${name.replaceAll("'","\\'")}')">Remove</button></div>`).join("") : `<p class="muted">No saved 1RM estimates yet.</p>`;
+}
+
 function render(){
+  render1RM();
   readiness();
   const week=+$("weekSelect").value;
   const w=plan.find(x=>x.week===week);
   $("plan").innerHTML = w ? w.days.map(d=>`
     <div class="day"><strong>${d.name}</strong>
-    ${d.exercises.map(e=>`<div class="exercise"><strong>${e.name}</strong><span class="pill">${e.sets} sets</span><span class="pill">${e.reps} reps</span><span class="pill">RIR ${e.rir}</span></div>`).join("")}
+    ${d.exercises.map(e=>{
+      const target=workingWeight(e.name,e.intensity);
+      const pct=e.intensity ? `<span class="pill">${Math.round(e.intensity*1000)/10}% 1RM</span>` : "";
+      const load=target ? `<span class="pill target">~${target} lb target</span>` : (e.intensity ? `<span class="pill missing">Add 1RM for load</span>` : "");
+      return `<div class="exercise"><strong>${e.name}</strong><span class="pill">${e.sets} sets</span><span class="pill">${e.reps} reps</span><span class="pill">RIR ${e.rir}</span>${pct}${load}</div>`;
+    }).join("")}
     ${d.cardio?`<div class="exercise"><strong>Cardio</strong><span class="pill">${d.cardio}</span></div>`:""}
     </div>`).join("") : `<p class="muted">Generate a training block to begin.</p>`;
 
@@ -102,13 +148,38 @@ window.logSet=(i,name)=>{
   if(!weight||!reps) return alert("Enter weight and reps.");
   state.logs=state.logs||[];
   state.logs.push({date:new Date().toISOString(),name,weight,reps,rir,readiness:state.readiness?.score||1});
+  // Keep an updated e1RM from sufficiently hard sets (RIR <= 2), adding RIR as estimated extra reps.
+  if(rir<=2 && reps<=12){
+    const effectiveReps=Math.min(15,reps+rir);
+    const e1rm=estimate1RM(weight,effectiveReps);
+    if(!state.oneRMs[name] || e1rm>state.oneRMs[name].value*.98){
+      state.oneRMs[name]={value:e1rm,weight,reps,effectiveReps,date:new Date().toISOString(),source:"workout log"};
+    }
+  }
   save(); render();
 };
 
+window.deleteRM=(name)=>{ delete state.oneRMs[name]; save(); render(); };
+
+$("saveRmBtn").addEventListener("click",()=>{
+  const name=$("rmExercise").value, weight=+$("rmWeight").value, reps=+$("rmReps").value;
+  if(!weight || !reps || reps<1 || reps>15) return alert("Enter a valid weight and 1–15 reps.");
+  const e1rm=estimate1RM(weight,reps);
+  state.oneRMs[name]={value:e1rm,weight,reps,date:new Date().toISOString(),source:"1RM calculator"};
+  $("rmResult").value=`${roundLoad(e1rm)} lb`;
+  save(); render();
+});
+
+function previewRM(){
+  const weight=+$("rmWeight").value, reps=+$("rmReps").value;
+  $("rmResult").value=(weight&&reps&&reps<=15) ? `${roundLoad(estimate1RM(weight,reps))} lb` : "";
+}
+$("rmWeight").addEventListener("input",previewRM);
+$("rmReps").addEventListener("input",previewRM);
 ["sleep","soreness","stress","energy"].forEach(id=>$(id).addEventListener("change",render));
 $("weekSelect").addEventListener("change",render);
 $("generateBtn").addEventListener("click",generate);
-$("resetBtn").addEventListener("click",()=>{ if(confirm("Delete FitCycle data on this device?")){localStorage.removeItem(storeKey);location.reload();}});
+$("resetBtn").addEventListener("click",()=>{ if(confirm("Delete FitCycle data on this device?")){localStorage.removeItem(storeKey);localStorage.removeItem("fitcycle-v1");location.reload();}});
 if(state.settings){
   $("goal").value=state.settings.goal;$("days").value=state.settings.days;$("cardioDays").value=state.settings.cardio;$("experience").value=state.settings.experience;
 }

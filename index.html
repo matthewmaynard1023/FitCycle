@@ -54,6 +54,28 @@
     <button id="generateBtn">Generate 4-Week Block</button>
   </section>
 
+
+  <section class="card">
+    <h2>1RM Calculator</h2>
+    <p class="muted">Estimate your one-rep max from a recent hard set. For the most useful estimate, use a set of about 2–10 reps performed with good form.</p>
+    <div class="grid">
+      <label>Exercise
+        <select id="rmExercise"></select>
+      </label>
+      <label>Weight (lb)
+        <input id="rmWeight" inputmode="decimal" type="number" min="0" step="2.5" placeholder="185">
+      </label>
+      <label>Reps performed
+        <input id="rmReps" inputmode="numeric" type="number" min="1" max="15" placeholder="5">
+      </label>
+      <label>Estimated 1RM
+        <input id="rmResult" type="text" readonly placeholder="—">
+      </label>
+    </div>
+    <button id="saveRmBtn">Calculate & Save 1RM</button>
+    <div id="rmSaved" class="rm-saved"></div>
+  </section>
+
   <section class="card">
     <h2>Today's Readiness</h2>
     <div class="grid">
