@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="FitCycle" />
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icon.svg" />
-  <link rel="stylesheet" href="styles.css?v=3" />
+  <link rel="stylesheet" href="styles.css?v=4" />
   <title>FitCycle</title>
 </head>
 <body>
@@ -30,7 +30,7 @@
       </div>
       <span class="badge">NEW</span>
     </div>
-    <p class="muted">Enter a recent hard set and FitCycle will estimate your 1RM, save it for the exercise, and use it to calculate workout loads.</p>
+    <p class="muted">Enter a recent hard set and FitCycle will estimate your 1RM, save it for the exercise, and use it to calculate both prescribed weight and reps across all 4 weeks.</p>
     <div class="grid">
       <label>Exercise
         <select id="rmExercise"></select>
@@ -100,11 +100,11 @@
         <option value="3">Week 3</option><option value="4">Week 4 — Deload</option>
       </select>
     </div>
-    <p class="muted">Log each set directly inside the workout. Your most recent performance and estimated 1RM feed future load recommendations.</p>
+    <p class="muted">For primary lifts, FitCycle converts your saved 1RM into a week-specific percentage, prescribed weight, and rep target. Log each set directly inside the workout; performance can update future estimates.</p>
     <div id="plan"></div>
   </section>
 </main>
 
-<script src="app.js?v=3"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>

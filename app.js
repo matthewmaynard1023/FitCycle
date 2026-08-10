@@ -1,6 +1,6 @@
 const $ = id => document.getElementById(id);
-const storeKey = "fitcycle-v3";
-const legacy = JSON.parse(localStorage.getItem("fitcycle-v2") || localStorage.getItem("fitcycle-v1") || "{}");
+const storeKey = "fitcycle-v4";
+const legacy = JSON.parse(localStorage.getItem("fitcycle-v3") || localStorage.getItem("fitcycle-v2") || localStorage.getItem("fitcycle-v1") || "{}");
 let state = JSON.parse(localStorage.getItem(storeKey) || "null") || legacy || {};
 let plan = state.plan || [];
 state.oneRMs = state.oneRMs || {};
@@ -39,6 +39,28 @@ function intensityFor(goal, week, name){
   return table[goal]?.[week] || .70;
 }
 
+function repsFromIntensity(intensity, goal, week){
+  if(!intensity) return null;
+  const pct=Math.round(intensity*100);
+  // Practical percentage-to-rep prescriptions. These are training targets, not max-effort rep tests.
+  if(week===4) return pct<=60 ? "10" : "8";
+  if(pct>=90) return "3";
+  if(pct>=85) return goal==="strength" ? "4" : "5";
+  if(pct>=80) return goal==="strength" ? "5" : "6";
+  if(pct>=75) return goal==="strength" ? "6" : "8";
+  if(pct>=70) return "8";
+  if(pct>=65) return "10";
+  return "12";
+}
+
+function prescriptionFor(goal, week, name){
+  const intensity=intensityFor(goal,week,name);
+  return {
+    intensity,
+    reps: repsFromIntensity(intensity,goal,week)
+  };
+}
+
 function splitFor(days){
   if(days===3) return ["full","full","full"];
   if(days===4) return ["upper","lower","upper","lower"];
@@ -49,13 +71,16 @@ function splitFor(days){
 function params(goal, week, name){
   const compound = /Squat|Deadlift|Bench|Press|Row|Pulldown|Pull-up/.test(name);
   let sets = compound ? 3 : 2, reps = compound ? "6–10" : "10–15", rir = 3;
-  if(goal==="strength"){ sets=compound?4:3; reps=compound?"4–6":"8–12"; }
-  if(goal==="hypertrophy"){ sets=3; reps=compound?"6–10":"10–15"; }
-  if(goal==="fatloss"||goal==="general"){ sets=compound?3:2; reps=compound?"6–10":"10–15"; }
+  if(goal==="strength") sets=compound?4:3;
+  if(goal==="hypertrophy") sets=3;
+  if(goal==="fatloss"||goal==="general") sets=compound?3:2;
   if(week===2) rir=2;
   if(week===3){ rir=1; if(compound) sets+=1; }
   if(week===4){ rir=4; sets=Math.max(2,Math.ceil(sets*.6)); }
-  return {sets,reps,rir,intensity:intensityFor(goal,week,name)};
+
+  const rx=prescriptionFor(goal,week,name);
+  if(rx.reps) reps=rx.reps;
+  return {sets,reps,rir,intensity:rx.intensity};
 }
 
 function generate(){
@@ -138,7 +163,7 @@ function render(){
         const target=workingWeight(e.name,e.intensity);
         const rm=state.oneRMs?.[e.name]?.value;
         const pct=e.intensity ? `<span class="pill">${Math.round(e.intensity*1000)/10}% 1RM</span>` : "";
-        const load=target ? `<span class="pill target">Target ~${target} lb</span>` : (e.intensity ? `<button class="inline-link" onclick="jumpToRM('${esc(e.name)}')">+ Add 1RM</button>` : "");
+        const load=target ? `<span class="pill target">Rx ${target} lb × ${e.reps}</span>` : (e.intensity ? `<button class="inline-link" onclick="jumpToRM('${esc(e.name)}')">+ Add 1RM to calculate load</button>` : "");
         const last=lastFor(e.name);
         const history=last ? `<span class="last-set">Last: ${last.weight} × ${last.reps} @ RIR ${last.rir}</span>` : '';
         return `<div class="exercise-card">
@@ -197,9 +222,9 @@ $("rmReps").addEventListener("input",previewRM);
 ["sleep","soreness","stress","energy"].forEach(id=>$(id).addEventListener("change",render));
 $("weekSelect").addEventListener("change",render);
 $("generateBtn").addEventListener("click",generate);
-$("resetBtn").addEventListener("click",()=>{ if(confirm("Delete FitCycle data on this device?")){localStorage.removeItem(storeKey);localStorage.removeItem("fitcycle-v2");localStorage.removeItem("fitcycle-v1");location.reload();}});
+$("resetBtn").addEventListener("click",()=>{ if(confirm("Delete FitCycle data on this device?")){localStorage.removeItem(storeKey);localStorage.removeItem("fitcycle-v3");localStorage.removeItem("fitcycle-v2");localStorage.removeItem("fitcycle-v1");location.reload();}});
 if(state.settings){
   $("goal").value=state.settings.goal;$("days").value=state.settings.days;$("cardioDays").value=state.settings.cardio;$("experience").value=state.settings.experience;
 }
-if("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js?v=3");
+if("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js?v=4");
 render();
